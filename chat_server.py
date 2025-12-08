@@ -124,17 +124,20 @@ def init_mem_db():
 
 
 def add_memory(text: str):
-    """Insert a new memory entry."""
+    """Insert a new memory entry and return (id, text, created_at)."""
+    created_at = datetime.utcnow().isoformat() + "Z"
     conn = sqlite3.connect(MEM_DB_PATH)
     try:
         cur = conn.cursor()
         cur.execute(
             "INSERT INTO memories (text, created_at) VALUES (?, ?)",
-            (text, datetime.utcnow().isoformat() + "Z"),
+            (text, created_at),
         )
         conn.commit()
+        mem_id = cur.lastrowid
     finally:
         conn.close()
+    return mem_id, text, created_at
 
 
 def search_memories(query: str, limit: int = 10):
@@ -179,7 +182,93 @@ def list_recent_memories(limit: int = 10):
         conn.close()
 
 
+def list_all_memories(limit: int = 100):
+    """List up to 'limit' most recent memories for the UI."""
+    return list_recent_memories(limit)
 
+
+def update_memory(mem_id: int, new_text: str) -> bool:
+    """Update a memory's text. Returns True if a row was updated."""
+    conn = sqlite3.connect(MEM_DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE memories SET text = ? WHERE id = ?",
+            (new_text, mem_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def delete_memory(mem_id: int) -> bool:
+    """Delete a memory by id. Returns True if a row was deleted."""
+    conn = sqlite3.connect(MEM_DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM memories WHERE id = ?", (mem_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+# === MEMORY API (for UI) =====================================================
+
+@app.route("/api/memories", methods=["GET"])
+def api_list_memories():
+    """Return recent memories as JSON for the UI."""
+    try:
+        limit = int(request.args.get("limit", 100))
+    except ValueError:
+        limit = 100
+
+    rows = list_all_memories(limit=limit)
+    memories = [
+        {"id": mid, "text": text, "created_at": created_at}
+        for (mid, text, created_at) in rows
+    ]
+    return jsonify({"memories": memories})
+
+
+@app.route("/api/memories", methods=["POST"])
+def api_create_memory():
+    """Create a new memory (text only)."""
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Memory text is required"}), 400
+
+    mem_id, mem_text, created_at = add_memory(text)
+    return jsonify(
+        {"memory": {"id": mem_id, "text": mem_text, "created_at": created_at}}
+    )
+
+
+@app.route("/api/memories/<int:mem_id>", methods=["PUT"])
+def api_update_memory(mem_id):
+    """Update an existing memory's text."""
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "Memory text is required"}), 400
+
+    ok = update_memory(mem_id, text)
+    if not ok:
+        return jsonify({"error": "Memory not found"}), 404
+
+    return jsonify({"success": True})
+
+
+@app.route("/api/memories/<int:mem_id>", methods=["DELETE"])
+def api_delete_memory(mem_id):
+    """Delete a memory."""
+    ok = delete_memory(mem_id)
+    if not ok:
+        return jsonify({"error": "Memory not found"}), 404
+
+    return jsonify({"success": True})
 
 # === BASIC INDEX & NON-STREAM ENDPOINT (unchanged) ==========================
 

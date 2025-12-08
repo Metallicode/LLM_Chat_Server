@@ -45,6 +45,217 @@
       gap: 0.75rem;
     }
 
+
+    .mem-btn {
+      border: 1px solid #1f2937;
+      background: radial-gradient(circle at top left, #020617, #030712);
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      padding: 0.3rem 0.7rem;
+      border-radius: 999px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+    }
+
+    .mem-btn:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    .mem-panel {
+      position: absolute;
+      top: 0.75rem;
+      right: 0.75rem;
+      bottom: 0.75rem;
+      width: min(320px, 90vw);
+      background: radial-gradient(circle at top left, #020617, #020617);
+      border-radius: 14px;
+      border: 1px solid #111827;
+      box-shadow: -16px 0 40px rgba(0, 0, 0, 0.8);
+      padding: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      transform: translateX(110%);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.18s ease-out, opacity 0.18s ease-out;
+      z-index: 20;
+    }
+
+    .mem-panel.open {
+      transform: translateX(0%);
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .mem-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .mem-panel-title {
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .mem-panel-subtitle {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      opacity: 0.9;
+    }
+
+    .mem-close-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 0.2rem;
+    }
+
+    .mem-list {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      padding-right: 0.25rem;
+    }
+
+    .mem-list::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .mem-list::-webkit-scrollbar-thumb {
+      background: #111827;
+      border-radius: 999px;
+    }
+
+    .mem-item {
+      border-radius: 0.6rem;
+      border: 1px solid #111827;
+      background: #020617;
+      padding: 0.4rem 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .mem-meta {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 0.3rem;
+    }
+
+    .mem-id {
+      opacity: 0.8;
+    }
+
+    .mem-textarea {
+      width: 100%;
+      border-radius: 0.4rem;
+      border: 1px solid #111827;
+      background: #020617;
+      color: var(--text);
+      font-size: 0.8rem;
+      resize: vertical;
+      min-height: 40px;
+      max-height: 140px;
+      padding: 0.3rem 0.4rem;
+      outline: none;
+    }
+
+    .mem-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.4rem;
+      margin-top: 0.15rem;
+    }
+
+    .mem-action-btn {
+      border-radius: 999px;
+      border: 1px solid #1f2937;
+      background: #020617;
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      padding: 0.18rem 0.55rem;
+      cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+
+    .mem-action-btn:hover {
+      border-color: var(--accent);
+    }
+
+    .mem-action-btn.delete {
+      border-color: rgba(248, 113, 113, 0.7);
+      color: #fecaca;
+    }
+
+    .mem-new {
+      border-top: 1px solid #111827;
+      padding-top: 0.4rem;
+      margin-top: 0.2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+
+    .mem-new-text {
+      width: 100%;
+      border-radius: 0.5rem;
+      border: 1px solid #111827;
+      background: #020617;
+      color: var(--text);
+      font-size: 0.8rem;
+      resize: vertical;
+      min-height: 45px;
+      max-height: 110px;
+      padding: 0.4rem 0.5rem;
+      outline: none;
+    }
+
+    .mem-add-btn {
+      align-self: flex-end;
+      border-radius: 999px;
+      border: none;
+      padding: 0.3rem 0.9rem;
+      font-size: 0.78rem;
+      cursor: pointer;
+      background: radial-gradient(circle at 0 0, #22c55e, #16a34a);
+      color: #e5ffe9;
+      box-shadow: 0 4px 12px rgba(22, 163, 74, 0.5);
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+
+    .mem-add-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .mem-add-btn:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 8px rgba(22, 163, 74, 0.4);
+    }
+
+    @media (max-width: 640px) {
+      .mem-panel {
+        right: 0.5rem;
+        left: 0.5rem;
+        width: auto;
+      }
+    }
+
+
+
     .card {
       background: linear-gradient(145deg, #050814, #070a17);
       border-radius: 18px;
@@ -54,7 +265,10 @@
       display: flex;
       flex-direction: column;
       min-height: 0;
+      position: relative; /* ensure mem-panel is positioned inside */
+      overflow: hidden;
     }
+
 
     header {
       display: flex;
@@ -337,18 +551,43 @@
 <body>
 <div class="app">
   <div class="card">
-    <header>
-      <div class="title">
-        <div class="logo-dot"></div>
-        <h1>Jetson Nano · Ollama Chat</h1>
-      </div>
-      <div id="status-pill" class="status-pill">
-        <span class="status-dot"></span>
-        <span id="status-text">Idle</span>
-      </div>
-    </header>
+<header>
+  <div class="title">
+    <div class="logo-dot"></div>
+    <h1>Jetson Nano · Ollama Chat</h1>
+  </div>
+  <div style="display: flex; align-items: center; gap: 0.5rem;">
+    <button id="mem-toggle" class="mem-btn">Memories</button>
+    <div id="status-pill" class="status-pill">
+      <span class="status-dot"></span>
+      <span id="status-text">Idle</span>
+    </div>
+  </div>
+</header>
 
     <div class="chat-container">
+
+<div id="mem-panel" class="mem-panel">
+      <div class="mem-panel-header">
+        <div>
+          <div class="mem-panel-title">Memories</div>
+          <div class="mem-panel-subtitle">Store, edit and delete memories.</div>
+        </div>
+        <button id="mem-close" class="mem-close-btn">✕</button>
+      </div>
+
+      <div id="mem-list" class="mem-list"></div>
+
+      <div class="mem-new">
+        <textarea
+          id="mem-new-text"
+          class="mem-new-text"
+          placeholder="Add a new memory..."
+        ></textarea>
+        <button id="mem-add" class="mem-add-btn">Add</button>
+      </div>
+    </div>
+
       <div id="chat-log" class="chat-log"></div>
 
       <div id="error-banner" class="error-banner"></div>
@@ -380,6 +619,16 @@
   const statusPill = document.getElementById("status-pill");
   const statusText = document.getElementById("status-text");
   const errorBanner = document.getElementById("error-banner");
+
+
+  const memPanel = document.getElementById("mem-panel");
+  const memToggle = document.getElementById("mem-toggle");
+  const memClose = document.getElementById("mem-close");
+  const memList = document.getElementById("mem-list");
+  const memNewText = document.getElementById("mem-new-text");
+  const memAddBtn = document.getElementById("mem-add");
+
+
 
   let history = []; // { user: "...", assistant: "..." }
   let isStreaming = false;
@@ -521,6 +770,162 @@
   });
 
   sendBtn.addEventListener("click", sendMessage);
+
+
+  async function fetchMemories() {
+    try {
+      const res = await fetch("/api/memories?limit=100");
+      if (!res.ok) throw new Error("Failed to load memories");
+      const data = await res.json();
+      return data.memories || [];
+    } catch (err) {
+      console.error(err);
+      showError("Could not load memories: " + err.message);
+      return [];
+    }
+  }
+
+  function renderMemories(memories) {
+    memList.innerHTML = "";
+    if (!memories.length) {
+      const div = document.createElement("div");
+      div.className = "mem-panel-subtitle";
+      div.textContent = "No memories yet. Add one below or use /remember in chat.";
+      memList.appendChild(div);
+      return;
+    }
+
+    memories.forEach((mem) => {
+      const item = document.createElement("div");
+      item.className = "mem-item";
+
+      const meta = document.createElement("div");
+      meta.className = "mem-meta";
+
+      const idSpan = document.createElement("span");
+      idSpan.className = "mem-id";
+      idSpan.textContent = `#${mem.id}`;
+
+      const dateSpan = document.createElement("span");
+      dateSpan.textContent = mem.created_at;
+
+      meta.appendChild(idSpan);
+      meta.appendChild(dateSpan);
+
+      const ta = document.createElement("textarea");
+      ta.className = "mem-textarea";
+      ta.value = mem.text;
+
+      const actions = document.createElement("div");
+      actions.className = "mem-actions";
+
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "mem-action-btn";
+      saveBtn.textContent = "Save";
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "mem-action-btn delete";
+      deleteBtn.textContent = "Delete";
+
+      saveBtn.addEventListener("click", async () => {
+        const newText = ta.value.trim();
+        if (!newText) {
+          alert("Memory text cannot be empty.");
+          return;
+        }
+        try {
+          const res = await fetch(`/api/memories/${mem.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: newText }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || "Failed to update memory");
+          }
+        } catch (err) {
+          console.error(err);
+          showError("Could not update memory: " + err.message);
+        }
+      });
+
+      deleteBtn.addEventListener("click", async () => {
+        if (!confirm("Delete this memory?")) return;
+        try {
+          const res = await fetch(`/api/memories/${mem.id}`, {
+            method: "DELETE",
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || "Failed to delete memory");
+          }
+          // Remove from UI
+          item.remove();
+        } catch (err) {
+          console.error(err);
+          showError("Could not delete memory: " + err.message);
+        }
+      });
+
+      actions.appendChild(saveBtn);
+      actions.appendChild(deleteBtn);
+
+      item.appendChild(meta);
+      item.appendChild(ta);
+      item.appendChild(actions);
+
+      memList.appendChild(item);
+    });
+  }
+
+  async function openMemPanel() {
+    clearError();
+    memPanel.classList.add("open");
+    const memories = await fetchMemories();
+    renderMemories(memories);
+  }
+
+  function closeMemPanel() {
+    memPanel.classList.remove("open");
+  }
+
+  memToggle.addEventListener("click", () => {
+    if (memPanel.classList.contains("open")) {
+      closeMemPanel();
+    } else {
+      openMemPanel();
+    }
+  });
+
+  memClose.addEventListener("click", () => {
+    closeMemPanel();
+  });
+
+  memAddBtn.addEventListener("click", async () => {
+    const text = memNewText.value.trim();
+    if (!text) return;
+
+    try {
+      const res = await fetch("/api/memories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to create memory");
+      }
+      memNewText.value = "";
+      const memories = await fetchMemories();
+      renderMemories(memories);
+    } catch (err) {
+      console.error(err);
+      showError("Could not create memory: " + err.message);
+    }
+  });
+
+
+
 </script>
 </body>
 </html>
