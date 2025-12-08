@@ -1,3 +1,4 @@
+#for jetson nano dev kit add:    pip3 install --upgrade pip setuptools wheel
 certifi==2025.4.26
 charset-normalizer==2.0.12
 click==8.0.4
