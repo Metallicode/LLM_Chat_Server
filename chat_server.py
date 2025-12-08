@@ -10,11 +10,22 @@ import requests
 import json
 import os
 from datetime import datetime
+import sqlite3
+from dotenv import load_dotenv
+
+
+# Load environment variables from .env file if it exists
+load_dotenv()
 
 app = Flask(__name__, static_folder="static")
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL_NAME = "gemma3:1b"  # e.g. "llama3.2"
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MEM_DB_PATH = os.path.join(BASE_DIR, "memories.db")
+
+
+OLLAMA_URL = os.environ.get("OLLAMA_URL")
+MODEL_NAME = os.environ.get("MODEL_NAME")
 
 # Tavily configuration
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
@@ -91,6 +102,84 @@ def tavily_search(query, topic="general"):
 
     return "\n".join(lines), None
 
+# === MEMORY (SQLite) =========================================================
+
+def init_mem_db():
+    """Create the memories table if it doesn't exist."""
+    conn = sqlite3.connect(MEM_DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def add_memory(text: str):
+    """Insert a new memory entry."""
+    conn = sqlite3.connect(MEM_DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO memories (text, created_at) VALUES (?, ?)",
+            (text, datetime.utcnow().isoformat() + "Z"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def search_memories(query: str, limit: int = 10):
+    """Search memories using a simple LIKE match."""
+    conn = sqlite3.connect(MEM_DB_PATH)
+    try:
+        cur = conn.cursor()
+        like = f"%{query}%"
+        cur.execute(
+            """
+            SELECT id, text, created_at
+            FROM memories
+            WHERE text LIKE ?
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (like, limit),
+        )
+        rows = cur.fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+def list_recent_memories(limit: int = 10):
+    """List the most recent memories."""
+    conn = sqlite3.connect(MEM_DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, text, created_at
+            FROM memories
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+        return rows
+    finally:
+        conn.close()
+
+
+
 
 # === BASIC INDEX & NON-STREAM ENDPOINT (unchanged) ==========================
 
@@ -140,8 +229,11 @@ def chat():
 def chat_stream():
     """
     Streaming endpoint: streams text chunks from Ollama to the browser.
-    Supports `/web <query>` to run a Tavily web search first and give
-    the results to Ollama as context.
+    Supports:
+    - `/remember <text>`: store a memory (no model call)
+    - `/mem <query>`: search memories
+    - `/mem`: list recent memories
+    - `/web <query>`: Tavily web search + LLM answer
     """
     data = request.get_json()
     user_message = data.get("message", "")
@@ -164,7 +256,43 @@ def chat_stream():
         ),
     }
 
-    # Decide if this is a /web query
+    # === MEMORY COMMANDS (no model call) =====================================
+    if user_message.startswith("/remember"):
+        raw = user_message[len("/remember"):].strip()
+        if not raw:
+            def gen_err():
+                yield "ERR:Empty /remember command. Use `/remember something to store`."
+            return Response(stream_with_context(gen_err()), mimetype="text/plain")
+
+        add_memory(raw)
+
+        def gen_ok():
+            yield "Okay, I'll remember that."
+        return Response(stream_with_context(gen_ok()), mimetype="text/plain")
+
+    if user_message.startswith("/mem"):
+        raw = user_message[len("/mem"):].strip()
+
+        if raw:
+            rows = search_memories(raw, limit=15)
+            header = f"Memories matching {raw!r}:\n"
+        else:
+            rows = list_recent_memories(limit=15)
+            header = "Most recent memories:\n"
+
+        def gen_list():
+            if not rows:
+                yield header + "(No memories found.)"
+                return
+
+            yield header
+            for mid, text, created_at in rows:
+                line = f"- [{mid}] {created_at}: {text}\n"
+                yield line
+
+        return Response(stream_with_context(gen_list()), mimetype="text/plain")
+
+    # === /web Tavily SEARCH ==================================================
     web_context_message = None
     final_user_prompt = user_message
 
@@ -175,7 +303,6 @@ def chat_stream():
                 yield "ERR:Empty /web query. Use `/web your question here`."
             return Response(stream_with_context(gen_err()), mimetype="text/plain")
 
-        # Pick topic based on query (simple heuristic)
         q_lower = raw_query.lower()
         topic = "news" if any(
             kw in q_lower for kw in ["today", "latest", "news", "breaking", "this week"]
@@ -197,7 +324,7 @@ def chat_stream():
             "answer the original question clearly and concisely:\n\n{}".format(raw_query)
         )
 
-    # Build final messages list for Ollama
+    # === NORMAL LLM CHAT (with optional web context) =========================
     messages = [system_msg]
     if web_context_message is not None:
         messages.append(web_context_message)
@@ -217,7 +344,6 @@ def chat_stream():
                 OLLAMA_URL, json=payload, stream=True, timeout=600
             ) as r:
                 r.raise_for_status()
-                # Ollama yields one JSON object per line
                 for line in r.iter_lines(decode_unicode=True):
                     if not line:
                         continue
@@ -233,7 +359,7 @@ def chat_stream():
                     msg = data.get("message", {})
                     content = msg.get("content", "")
                     if content:
-                        yield content  # streaming raw text chunks
+                        yield content
 
                     if data.get("done"):
                         break
@@ -244,6 +370,7 @@ def chat_stream():
 
 
 if __name__ == "__main__":
+    init_mem_db()
     # 0.0.0.0 so you can reach it from other devices on your LAN
     app.run(host="0.0.0.0", port=5000, debug=True)
 
