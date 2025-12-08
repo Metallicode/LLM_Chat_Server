@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Jetson Nano · Ollama Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #050814;
+      --bg-elevated: #0c1020;
+      --accent: #4f8cff;
+      --accent-soft: rgba(79, 140, 255, 0.15);
+      --text: #f5f5f5;
+      --text-muted: #9ca3af;
+      --user-bubble: #1f2937;
+      --assistant-bubble: #111827;
+      --border-subtle: #1f2937;
+      --danger: #f97373;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+      background: radial-gradient(circle at top, #151b3a 0, #050814 55%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .card {
+      background: linear-gradient(145deg, #050814, #070a17);
+      border-radius: 18px;
+      border: 1px solid var(--border-subtle);
+      box-shadow: 0 18px 45px rgba(0, 0, 0, 0.6);
+      padding: 1rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .title {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .logo-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 999px;
+      background: radial-gradient(circle at 30% 30%, #8b5cf6, #2563eb);
+      box-shadow: 0 0 12px rgba(79, 140, 255, 0.8);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .status-pill {
+      font-size: 0.7rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: 999px;
+      border: 1px solid var(--accent-soft);
+      background: radial-gradient(circle at top left, var(--accent-soft), transparent);
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      white-space: nowrap;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #22c55e;
+      box-shadow: 0 0 10px rgba(34, 197, 94, 0.7);
+    }
+
+    .status-pill.loading .status-dot {
+      animation: pulse 1.1s infinite alternate;
+    }
+
+    @keyframes pulse {
+      from {
+        transform: scale(0.9);
+        opacity: 0.6;
+      }
+      to {
+        transform: scale(1.1);
+        opacity: 1;
+      }
+    }
+
+    .chat-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      border-radius: 14px;
+      background: radial-gradient(circle at top left, #111827, #020617);
+      border: 1px solid #111827;
+      padding: 0.75rem;
+      gap: 0.75rem;
+    }
+
+    .chat-log {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 0.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      font-size: 0.92rem;
+    }
+
+    .chat-log::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .chat-log::-webkit-scrollbar-thumb {
+      background: #111827;
+      border-radius: 999px;
+    }
+
+    .message-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: flex-start;
+    }
+
+    .message-row.user {
+      justify-content: flex-end;
+    }
+
+    .message-avatar {
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+    }
+
+    .message-avatar.user {
+      background: linear-gradient(135deg, #22c55e, #16a34a);
+      color: #e5ffe9;
+    }
+
+    .message-avatar.assistant {
+      background: radial-gradient(circle at 20% 20%, #4f8cff, #111827);
+      color: #e0edff;
+    }
+
+    .message-bubble {
+      max-width: 80%;
+      padding: 0.6rem 0.8rem;
+      border-radius: 0.9rem;
+      border: 1px solid transparent;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .message-row.user .message-bubble {
+      background: var(--user-bubble);
+      border-color: #1f2937;
+    }
+
+    .message-row.assistant .message-bubble {
+      background: var(--assistant-bubble);
+      border-color: #1f2937;
+    }
+
+    .message-meta {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-bottom: 0.15rem;
+      opacity: 0.9;
+    }
+
+    .input-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-top: 0.3rem;
+      padding-top: 0.6rem;
+      border-top: 1px solid #111827;
+    }
+
+    .input-wrapper {
+      flex: 1;
+      position: relative;
+    }
+
+    textarea {
+      width: 100%;
+      resize: none;
+      min-height: 45px;
+      max-height: 110px;
+      padding: 0.65rem 2.5rem 0.65rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid #111827;
+      background: #020617;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.9rem;
+      outline: none;
+      transition: border-color 0.12s ease, box-shadow 0.12s ease,
+        background 0.12s ease;
+    }
+
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.35);
+      background: #020617;
+    }
+
+    .send-btn {
+      border: none;
+      border-radius: 999px;
+      padding: 0.55rem 1.2rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      background: radial-gradient(circle at 0 0, #4f46e5, #2563eb);
+      color: #f9fafb;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      box-shadow: 0 10px 25px rgba(37, 99, 235, 0.5);
+      transition: transform 0.08s ease, box-shadow 0.08s ease,
+        filter 0.08s ease;
+      white-space: nowrap;
+    }
+
+    .send-btn:disabled {
+      opacity: 0.6;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    .send-btn:not(:disabled):hover {
+      transform: translateY(-1px);
+      filter: brightness(1.05);
+    }
+
+    .send-btn:not(:disabled):active {
+      transform: translateY(0);
+      box-shadow: 0 6px 18px rgba(37, 99, 235, 0.4);
+    }
+
+    .send-icon {
+      font-size: 0.9rem;
+    }
+
+    .input-hint {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 0.3rem;
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      opacity: 0.85;
+    }
+
+    .error-banner {
+      margin-top: 0.4rem;
+      font-size: 0.78rem;
+      padding: 0.45rem 0.65rem;
+      border-radius: 0.6rem;
+      background: rgba(248, 113, 113, 0.08);
+      border: 1px solid rgba(248, 113, 113, 0.4);
+      color: #fecaca;
+      display: none;
+    }
+
+    .error-banner.visible {
+      display: block;
+    }
+
+    @media (max-width: 640px) {
+      .app {
+        padding: 0.75rem;
+      }
+
+      .card {
+        padding: 0.75rem;
+      }
+
+      .chat-log {
+        font-size: 0.9rem;
+      }
+
+      .message-bubble {
+        max-width: 88%;
+      }
+
+      textarea {
+        border-radius: 0.85rem;
+      }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="card">
+    <header>
+      <div class="title">
+        <div class="logo-dot"></div>
+        <h1>Jetson Nano · Ollama Chat</h1>
+      </div>
+      <div id="status-pill" class="status-pill">
+        <span class="status-dot"></span>
+        <span id="status-text">Idle</span>
+      </div>
+    </header>
+
+    <div class="chat-container">
+      <div id="chat-log" class="chat-log"></div>
+
+      <div id="error-banner" class="error-banner"></div>
+
+      <div class="input-row">
+        <div class="input-wrapper">
+          <textarea
+            id="message-input"
+            placeholder="Ask me something..."
+          ></textarea>
+        </div>
+        <button id="send-btn" class="send-btn">
+          <span class="send-icon">➤</span>
+          <span>Send</span>
+        </button>
+      </div>
+      <div class="input-hint">
+        <span>Press <strong>Enter</strong> to send · <strong>Shift+Enter</strong> for newline</span>
+        <span>Model running on your Jetson Nano</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const chatLog = document.getElementById("chat-log");
+  const inputEl = document.getElementById("message-input");
+  const sendBtn = document.getElementById("send-btn");
+  const statusPill = document.getElementById("status-pill");
+  const statusText = document.getElementById("status-text");
+  const errorBanner = document.getElementById("error-banner");
+
+  let history = []; // { user: "...", assistant: "..." }
+  let isStreaming = false;
+
+  function setStatus(text, loading = false) {
+    statusText.textContent = text;
+    if (loading) {
+      statusPill.classList.add("loading");
+    } else {
+      statusPill.classList.remove("loading");
+    }
+  }
+
+  function showError(msg) {
+    errorBanner.textContent = msg;
+    errorBanner.classList.add("visible");
+  }
+
+  function clearError() {
+    errorBanner.textContent = "";
+    errorBanner.classList.remove("visible");
+  }
+
+  function createMessageRow(role, text) {
+    const row = document.createElement("div");
+    row.className = "message-row " + role;
+
+    const avatar = document.createElement("div");
+    avatar.className = "message-avatar " + role;
+    avatar.textContent = role === "user" ? "You" : "AI";
+
+    const bubble = document.createElement("div");
+    bubble.className = "message-bubble";
+
+    const meta = document.createElement("div");
+    meta.className = "message-meta";
+    meta.textContent = role === "user" ? "You" : "Assistant";
+
+    const content = document.createElement("div");
+    content.textContent = text;
+
+    bubble.appendChild(meta);
+    bubble.appendChild(content);
+    row.appendChild(role === "user" ? bubble : avatar);
+    row.appendChild(role === "user" ? avatar : bubble);
+
+    chatLog.appendChild(row);
+    chatLog.scrollTop = chatLog.scrollHeight;
+
+    return { row, bubble, content };
+  }
+
+  function updateAssistantContent(contentEl, text) {
+    contentEl.textContent = text;
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  async function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text || isStreaming) return;
+
+    clearError();
+
+    // Add user message
+    createMessageRow("user", text);
+
+    // Prepare assistant placeholder message
+    const { content: assistantContentEl } = createMessageRow("assistant", "");
+
+    inputEl.value = "";
+    inputEl.style.height = "auto";
+    inputEl.focus();
+
+    sendBtn.disabled = true;
+    isStreaming = true;
+    setStatus("Thinking…", true);
+
+    let fullReply = "";
+
+    try {
+      const res = await fetch("/api/chat_stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, history }),
+      });
+
+      if (!res.ok || !res.body) {
+        throw new Error("Bad response from server");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+
+        // Handle error marker from server
+        if (chunk.startsWith("ERR:")) {
+          const msg = chunk.slice(4);
+          showError(msg || "Unexpected server error");
+          break;
+        }
+
+        fullReply += chunk;
+        updateAssistantContent(assistantContentEl, fullReply);
+      }
+
+      if (fullReply.trim().length > 0) {
+        history.push({ user: text, assistant: fullReply });
+      }
+    } catch (err) {
+      console.error(err);
+      showError("Network error: " + err.message);
+      updateAssistantContent(
+        assistantContentEl,
+        "[Network error: " + err.message + "]"
+      );
+    } finally {
+      isStreaming = false;
+      sendBtn.disabled = false;
+      setStatus("Idle", false);
+    }
+  }
+
+  // Autosize textarea
+  inputEl.addEventListener("input", () => {
+    inputEl.style.height = "auto";
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 110) + "px";
+  });
+
+  // Enter to send, Shift+Enter = newline
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  sendBtn.addEventListener("click", sendMessage);
+</script>
+</body>
+</html>
+
