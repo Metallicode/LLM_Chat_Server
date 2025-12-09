@@ -27,6 +27,17 @@ MEM_DB_PATH = os.path.join(BASE_DIR, "memories.db")
 OLLAMA_URL = os.environ.get("OLLAMA_URL")
 MODEL_NAME = os.environ.get("MODEL_NAME")
 
+
+# Derive embed URL from the chat URL
+if "/api/chat" in OLLAMA_URL:
+    OLLAMA_BASE = OLLAMA_URL.rsplit("/api/chat", 1)[0]
+else:
+    OLLAMA_BASE = OLLAMA_URL  # fallback
+OLLAMA_EMBED_URL = f"{OLLAMA_BASE}/api/embed"
+
+# Embedding model name (you'll need to `ollama pull` this on the box)
+EMBED_MODEL = os.environ.get("EMBED_MODEL") or "nomic-embed-text"
+
 # Tavily configuration
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
@@ -105,7 +116,7 @@ def tavily_search(query, topic="general"):
 # === MEMORY (SQLite) =========================================================
 
 def init_mem_db():
-    """Create the memories table if it doesn't exist."""
+    """Create the memories table if it doesn't exist, and ensure embedding column."""
     conn = sqlite3.connect(MEM_DB_PATH)
     try:
         cur = conn.cursor()
@@ -119,25 +130,113 @@ def init_mem_db():
             """
         )
         conn.commit()
+
+        # Ensure 'embedding' column exists
+        cur.execute("PRAGMA table_info(memories)")
+        cols = [row[1] for row in cur.fetchall()]
+        if "embedding" not in cols:
+            cur.execute("ALTER TABLE memories ADD COLUMN embedding TEXT")
+            conn.commit()
     finally:
         conn.close()
 
 
-def add_memory(text: str):
-    """Insert a new memory entry and return (id, text, created_at)."""
-    created_at = datetime.utcnow().isoformat() + "Z"
+# === EMBEDDINGS & SEMANTIC MEMORY SEARCH ====================================
+
+def embed_text(text: str):
+    """
+    Get an embedding vector from Ollama for a given piece of text.
+    Returns a list of floats.
+    """
+    payload = {
+        "model": EMBED_MODEL,
+        "input": text,
+    }
+    try:
+        r = requests.post(OLLAMA_EMBED_URL, json=payload, timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        # Ollama /api/embed returns {"embedding": [...]} or {"embeddings": [[...]]}
+        if "embedding" in data:
+            return data["embedding"]
+        elif "embeddings" in data and data["embeddings"]:
+            return data["embeddings"][0]
+        else:
+            raise ValueError("Unexpected embed response format")
+    except Exception as e:
+        print("[WARN] embed_text failed:", e)
+        return None
+
+
+def cosine_similarity(a, b):
+    """Compute cosine similarity between two equal-length lists of floats."""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    # Simple Python loop to avoid importing numpy
+    dot = 0.0
+    na = 0.0
+    nb = 0.0
+    for x, y in zip(a, b):
+        dot += x * y
+        na += x * x
+        nb += y * y
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na ** 0.5 * nb ** 0.5)
+
+
+def search_semantic_memories(query: str, top_k: int = 3, min_sim: float = 0.2):
+    """
+    Return top-k most semantically similar memories to the query.
+    Each item: (id, text, created_at, similarity)
+    """
+    q_emb = embed_text(query)
+    if q_emb is None:
+        return []
+
     conn = sqlite3.connect(MEM_DB_PATH)
     try:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO memories (text, created_at) VALUES (?, ?)",
-            (text, created_at),
+            "SELECT id, text, created_at, embedding FROM memories WHERE embedding IS NOT NULL"
         )
-        conn.commit()
-        mem_id = cur.lastrowid
+        rows = cur.fetchall()
     finally:
         conn.close()
-    return mem_id, text, created_at
+
+    scored = []
+    for mid, text, created_at, emb_json in rows:
+        if not emb_json:
+            continue
+        try:
+            emb = json.loads(emb_json)
+        except Exception:
+            continue
+        sim = cosine_similarity(q_emb, emb)
+        if sim >= min_sim:
+            scored.append((mid, text, created_at, sim))
+
+    scored.sort(key=lambda t: t[3], reverse=True)
+    return scored[:top_k]
+
+
+def build_memory_context(user_message: str, max_items: int = 3):
+    """
+    Build an Ollama message (or []) containing relevant memories for the given user message.
+    """
+    matches = search_semantic_memories(user_message, top_k=max_items)
+    if not matches:
+        return []
+
+    lines = ["Relevant remembered information:"]
+    for mid, text, created_at, sim in matches:
+        lines.append(f"- [{mid}] {text} (saved {created_at}, similarity {sim:.2f})")
+
+    return [{
+        "role": "system",
+        "content": "\n".join(lines),
+    }]
+
 
 
 def search_memories(query: str, limit: int = 10):
@@ -187,19 +286,43 @@ def list_all_memories(limit: int = 100):
     return list_recent_memories(limit)
 
 
-def update_memory(mem_id: int, new_text: str) -> bool:
-    """Update a memory's text. Returns True if a row was updated."""
+def add_memory(text: str):
+    """Insert a new memory entry and return (id, text, created_at)."""
+    created_at = datetime.utcnow().isoformat() + "Z"
+    emb = embed_text(text)
+    emb_json = json.dumps(emb) if emb is not None else None
+
     conn = sqlite3.connect(MEM_DB_PATH)
     try:
         cur = conn.cursor()
         cur.execute(
-            "UPDATE memories SET text = ? WHERE id = ?",
-            (new_text, mem_id),
+            "INSERT INTO memories (text, created_at, embedding) VALUES (?, ?, ?)",
+            (text, created_at, emb_json),
+        )
+        conn.commit()
+        mem_id = cur.lastrowid
+    finally:
+        conn.close()
+    return mem_id, text, created_at
+
+
+def update_memory(mem_id: int, new_text: str) -> bool:
+    """Update a memory's text and its embedding."""
+    emb = embed_text(new_text)
+    emb_json = json.dumps(emb) if emb is not None else None
+
+    conn = sqlite3.connect(MEM_DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE memories SET text = ?, embedding = ? WHERE id = ?",
+            (new_text, emb_json, mem_id),
         )
         conn.commit()
         return cur.rowcount > 0
     finally:
         conn.close()
+
 
 
 def delete_memory(mem_id: int) -> bool:
@@ -414,10 +537,18 @@ def chat_stream():
         )
 
     # === NORMAL LLM CHAT (with optional web context) =========================
+    # === MEMORY CONTEXT (semantic) ===========================================
+    memory_context_messages = []
+    # Only build memory context for "real" chat /web queries, not for commands
+    if not user_message.startswith(("/remember", "/mem")):
+        memory_context_messages = build_memory_context(final_user_prompt)
+
+    # === NORMAL LLM CHAT (with optional web + memory context) ================
     messages = [system_msg]
     if web_context_message is not None:
         messages.append(web_context_message)
 
+    messages.extend(memory_context_messages)
     messages.extend(history_messages)
     messages.append({"role": "user", "content": final_user_prompt})
 
