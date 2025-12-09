@@ -24,6 +24,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MEM_DB_PATH = os.path.join(BASE_DIR, "memories.db")
 
 
+KNOWLEDGE_DIR = os.path.join(BASE_DIR, "data", "knowledge")
+RAG_DB_PATH = os.path.join(BASE_DIR, "rag.db")
+
+
 OLLAMA_URL = os.environ.get("OLLAMA_URL")
 MODEL_NAME = os.environ.get("MODEL_NAME")
 
@@ -113,6 +117,176 @@ def tavily_search(query, topic="general"):
 
     return "\n".join(lines), None
 
+# === RAG (docs) SQLite ======================================================
+
+def init_rag_db():
+    """Create the RAG docs table if it doesn't exist."""
+    conn = sqlite3.connect(RAG_DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS docs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                embedding TEXT
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def chunk_text(text: str, max_chars: int = 1500, overlap: int = 200):
+    """
+    Simple character-based chunking with overlap.
+    Good enough for small RAG and avoids needing a tokenizer.
+    """
+    text = text.strip()
+    if not text:
+        return []
+
+    chunks = []
+    start = 0
+    n = len(text)
+    while start < n:
+        end = min(start + max_chars, n)
+        chunk = text[start:end]
+        chunks.append(chunk.strip())
+        if end == n:
+            break
+        start = end - overlap  # overlap backwards
+        if start < 0:
+            start = 0
+    return chunks
+
+
+def clear_rag_index():
+    """Delete all rows from docs table."""
+    conn = sqlite3.connect(RAG_DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM docs")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def index_rag_folder():
+    """
+    Index all text files in KNOWLEDGE_DIR into rag.db.
+    Returns the number of chunks indexed.
+    """
+    os.makedirs(KNOWLEDGE_DIR, exist_ok=True)
+
+    clear_rag_index()
+
+    chunk_count = 0
+    conn = sqlite3.connect(RAG_DB_PATH)
+    try:
+        cur = conn.cursor()
+        for root, dirs, files in os.walk(KNOWLEDGE_DIR):
+            for name in files:
+                if not name.lower().endswith((".txt", ".md")):
+                    continue
+                path = os.path.join(root, name)
+                rel_path = os.path.relpath(path, BASE_DIR)
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                except Exception as e:
+                    print(f"[WARN] Failed to read {path}: {e}")
+                    continue
+
+                chunks = chunk_text(content)
+                for idx, chunk in enumerate(chunks):
+                    emb = embed_text(chunk)
+                    emb_json = json.dumps(emb) if emb is not None else None
+                    cur.execute(
+                        """
+                        INSERT INTO docs (file_path, chunk_index, text, embedding)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (rel_path, idx, chunk, emb_json),
+                    )
+                    chunk_count += 1
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    print(f"[INFO] RAG indexing complete: {chunk_count} chunks indexed")
+    return chunk_count
+
+
+
+def search_rag_chunks(query: str, top_k: int = 5, min_sim: float = 0.25):
+    """
+    Return top-k most semantically similar document chunks to the query.
+    Each item: (file_path, chunk_index, text, similarity)
+    """
+    q_emb = embed_text(query)
+    if q_emb is None:
+        return []
+
+    conn = sqlite3.connect(RAG_DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT file_path, chunk_index, text, embedding FROM docs WHERE embedding IS NOT NULL")
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    scored = []
+    for file_path, chunk_index, text, emb_json in rows:
+        if not emb_json:
+            continue
+        try:
+            emb = json.loads(emb_json)
+        except Exception:
+            continue
+        sim = cosine_similarity(q_emb, emb)
+        if sim >= min_sim:
+            scored.append((file_path, chunk_index, text, sim))
+
+    scored.sort(key=lambda t: t[3], reverse=True)
+    return scored[:top_k]
+
+
+def build_rag_context(user_message: str, max_items: int = 5):
+    """
+    Build an Ollama message (or []) containing relevant doc chunks for the given user message.
+    """
+    matches = search_rag_chunks(user_message, top_k=max_items)
+    if not matches:
+        return []
+
+    lines = ["Relevant reference information from your documents:"]
+    for file_path, chunk_index, text, sim in matches:
+        lines.append(
+            f"\n[File: {file_path}, chunk {chunk_index}, similarity {sim:.2f}]\n{text}\n"
+        )
+
+    return [{
+        "role": "system",
+        "content": "\n".join(lines),
+    }]
+
+# === RAG API (for UI / manual trigger) ======================================
+## Reindex: curl -X POST http://localhost:5000/api/rag/reindex
+
+
+@app.route("/api/rag/reindex", methods=["POST"])
+def api_rag_reindex():
+    """Reindex the knowledge folder into rag.db."""
+    count = index_rag_folder()
+    return jsonify({"success": True, "chunks_indexed": count})
+
+
+
 # === MEMORY (SQLite) =========================================================
 
 def init_mem_db():
@@ -139,6 +313,7 @@ def init_mem_db():
             conn.commit()
     finally:
         conn.close()
+
 
 
 # === EMBEDDINGS & SEMANTIC MEMORY SEARCH ====================================
@@ -393,7 +568,7 @@ def api_delete_memory(mem_id):
 
     return jsonify({"success": True})
 
-# === BASIC INDEX & NON-STREAM ENDPOINT (unchanged) ==========================
+# === BASIC INDEX & NON-STREAM ENDPOINT ==========================
 
 @app.route("/")
 def index():
@@ -543,14 +718,22 @@ def chat_stream():
     if not user_message.startswith(("/remember", "/mem")):
         memory_context_messages = build_memory_context(final_user_prompt)
 
-    # === NORMAL LLM CHAT (with optional web + memory context) ================
+    # === RAG CONTEXT (docs) ==================================================
+    rag_context_messages = []
+    if not user_message.startswith(("/remember", "/mem", "/web")):
+        rag_context_messages = build_rag_context(final_user_prompt)
+
+
+    # === NORMAL LLM CHAT (with optional web + memory + RAG context) =========
     messages = [system_msg]
     if web_context_message is not None:
         messages.append(web_context_message)
 
     messages.extend(memory_context_messages)
+    messages.extend(rag_context_messages)
     messages.extend(history_messages)
     messages.append({"role": "user", "content": final_user_prompt})
+
 
     payload = {
         "model": MODEL_NAME,
@@ -591,6 +774,7 @@ def chat_stream():
 
 if __name__ == "__main__":
     init_mem_db()
+    init_rag_db()
     # 0.0.0.0 so you can reach it from other devices on your LAN
     app.run(host="0.0.0.0", port=5000, debug=True)
 
