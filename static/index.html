@@ -254,7 +254,22 @@
       }
     }
 
+.rag-btn {
+      font-size: 0.7rem;
+    }
 
+    .rag-btn.running {
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    .rag-status-ok {
+      color: var(--text-muted);
+    }
+
+    .rag-status-error {
+      color: #fecaca;
+    }
 
     .card {
       background: linear-gradient(145deg, #050814, #070a17);
@@ -551,6 +566,7 @@
 <body>
 <div class="app">
   <div class="card">
+
 <header>
   <div class="title">
     <div class="logo-dot"></div>
@@ -558,12 +574,14 @@
   </div>
   <div style="display: flex; align-items: center; gap: 0.5rem;">
     <button id="mem-toggle" class="mem-btn">Memories</button>
+    <button id="rag-reindex" class="mem-btn rag-btn">Reindex Docs</button>
     <div id="status-pill" class="status-pill">
       <span class="status-dot"></span>
       <span id="status-text">Idle</span>
     </div>
   </div>
 </header>
+
 
     <div class="chat-container">
 
@@ -604,10 +622,10 @@
           <span>Send</span>
         </button>
       </div>
-      <div class="input-hint">
-        <span>Press <strong>Enter</strong> to send · <strong>Shift+Enter</strong> for newline</span>
-        <span>Model running on your Jetson Nano</span>
-      </div>
+    <div class="input-hint">
+      <span>Press <strong>Enter</strong> to send · <strong>Shift+Enter</strong> for newline · Use <strong>/web</strong> for web search</span>
+      <span id="rag-status">Docs: not indexed yet</span>
+    </div>
     </div>
   </div>
 </div>
@@ -629,6 +647,8 @@
   const memAddBtn = document.getElementById("mem-add");
 
 
+  const ragReindexBtn = document.getElementById("rag-reindex");
+  const ragStatusSpan = document.getElementById("rag-status");
 
   let history = []; // { user: "...", assistant: "..." }
   let isStreaming = false;
@@ -924,6 +944,50 @@
     }
   });
 
+  async function reindexDocs() {
+    clearError();
+    if (!ragReindexBtn || !ragStatusSpan) return;
+
+    ragReindexBtn.disabled = true;
+    ragReindexBtn.classList.add("running");
+    const oldText = ragReindexBtn.textContent;
+    ragReindexBtn.textContent = "Indexing…";
+
+    ragStatusSpan.textContent = "Reindexing documents…";
+    ragStatusSpan.classList.remove("rag-status-error");
+    ragStatusSpan.classList.add("rag-status-ok");
+
+    try {
+      const res = await fetch("/api/rag/reindex", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to reindex docs");
+      }
+      const data = await res.json();
+      const count = data.chunks_indexed ?? 0;
+
+      ragStatusSpan.textContent = `Docs indexed: ${count} chunks`;
+      ragStatusSpan.classList.remove("rag-status-error");
+      ragStatusSpan.classList.add("rag-status-ok");
+    } catch (err) {
+      console.error(err);
+      ragStatusSpan.textContent = "Error indexing docs: " + err.message;
+      ragStatusSpan.classList.remove("rag-status-ok");
+      ragStatusSpan.classList.add("rag-status-error");
+      showError("Could not reindex docs: " + err.message);
+    } finally {
+      ragReindexBtn.disabled = false;
+      ragReindexBtn.classList.remove("running");
+      ragReindexBtn.textContent = oldText;
+    }
+  }
+
+  if (ragReindexBtn) {
+    ragReindexBtn.addEventListener("click", reindexDocs);
+  }
 
 
 </script>
