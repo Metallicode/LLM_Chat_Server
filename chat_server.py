@@ -47,6 +47,85 @@ TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 
 
+
+
+##system layer templates
+CORE_IDENTITY = """LEVEL 0 — CORE IDENTITY
+You are a helpful local assistant running on the user's hardware.
+You must be honest. If you don't know something, say so.
+Prefer clear, concise answers with practical steps where appropriate.
+"""
+
+BEHAVIOR_RULES = """LEVEL 1 — BEHAVIOR RULES
+- If you use information from DOCUMENTS (RAG), mention that you used the user's documents and name the file(s) when possible.
+- If you use information from WEB SEARCH results, mention that you used web search and cite the source titles/URLs provided.
+- Do not invent sources. If the context does not contain the answer, say so or ask a clarifying question.
+- When summarizing, keep it short unless the user asks for depth.
+"""
+
+PERSONALIZATION = """LEVEL 2 — PERSONALIZATION
+User name: Dominique.
+(Additional personal/family profile may be added later.)
+Tone: friendly, technical when asked, otherwise simple and direct.
+"""
+
+TASK_FRAME = """LEVEL 6 — TASK
+Use the context in the system messages above (if any) to answer the user's request.
+If multiple contexts conflict, prefer WEB SEARCH over DOCUMENTS, and DOCUMENTS over MEMORY,
+unless the user explicitly asks otherwise.
+"""
+
+def build_hierarchical_messages(
+    history_messages,
+    user_prompt,
+    memory_context_messages=None,
+    rag_context_messages=None,
+    web_context_message=None,
+):
+    """
+    Build a consistent 'hierarchical system prompt' stack.
+
+    - history_messages: list of {role,user/assistant,content}
+    - user_prompt: final prompt to ask the model
+    - memory_context_messages: list (0 or 1) system msgs
+    - rag_context_messages: list (0 or 1) system msgs
+    - web_context_message: single system msg or None
+    """
+    messages = []
+
+    # L0–L2 always present
+    messages.append({"role": "system", "content": CORE_IDENTITY})
+    messages.append({"role": "system", "content": BEHAVIOR_RULES})
+    messages.append({"role": "system", "content": PERSONALIZATION})
+
+    # L3 memory
+    if memory_context_messages:
+        mem_text = "\n\n".join(m["content"] for m in memory_context_messages if m.get("content"))
+        messages.append({"role": "system", "content": "LEVEL 3 — MEMORY\n" + mem_text})
+
+    # L4 docs
+    if rag_context_messages:
+        rag_text = "\n\n".join(m["content"] for m in rag_context_messages if m.get("content"))
+        messages.append({"role": "system", "content": "LEVEL 4 — DOCUMENTS (RAG)\n" + rag_text})
+
+    # L5 web
+    if web_context_message is not None:
+        web_text = web_context_message["content"]
+        messages.append({"role": "system", "content": "LEVEL 5 — WEB SEARCH\n" + web_text})
+
+    # L6 task frame
+    messages.append({"role": "system", "content": TASK_FRAME})
+
+    # Conversation history + final user prompt
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": user_prompt})
+
+    return messages
+
+
+
+
+
 # === TAVILY WEB SEARCH =======================================================
 
 def tavily_search(query, topic="general"):
@@ -633,16 +712,6 @@ def chat_stream():
         if turn.get("assistant"):
             history_messages.append({"role": "assistant", "content": turn["assistant"]})
 
-    # Global system message – later we’ll enrich this with profile/memory/etc.
-    system_msg = {
-        "role": "system",
-        "content": (
-            "You are a helpful local assistant. "
-            "If system messages provide web search results, treat them as your primary "
-            "source for answering the user, and mention when you are using web search."
-        ),
-    }
-
     # === MEMORY COMMANDS (no model call) =====================================
     if user_message.startswith("/remember"):
         raw = user_message[len("/remember"):].strip()
@@ -711,10 +780,8 @@ def chat_stream():
             "answer the original question clearly and concisely:\n\n{}".format(raw_query)
         )
 
-    # === NORMAL LLM CHAT (with optional web context) =========================
     # === MEMORY CONTEXT (semantic) ===========================================
     memory_context_messages = []
-    # Only build memory context for "real" chat /web queries, not for commands
     if not user_message.startswith(("/remember", "/mem")):
         memory_context_messages = build_memory_context(final_user_prompt)
 
@@ -723,17 +790,14 @@ def chat_stream():
     if not user_message.startswith(("/remember", "/mem", "/web")):
         rag_context_messages = build_rag_context(final_user_prompt)
 
-
-    # === NORMAL LLM CHAT (with optional web + memory + RAG context) =========
-    messages = [system_msg]
-    if web_context_message is not None:
-        messages.append(web_context_message)
-
-    messages.extend(memory_context_messages)
-    messages.extend(rag_context_messages)
-    messages.extend(history_messages)
-    messages.append({"role": "user", "content": final_user_prompt})
-
+    # === HIERARCHICAL MESSAGE STACK ==========================================
+    messages = build_hierarchical_messages(
+        history_messages=history_messages,
+        user_prompt=final_user_prompt,
+        memory_context_messages=memory_context_messages,
+        rag_context_messages=rag_context_messages,
+        web_context_message=web_context_message,
+    )
 
     payload = {
         "model": MODEL_NAME,
